@@ -3,30 +3,72 @@
 #include <vector>
 #include <cctype>
 #include <cstdlib>
+#include <map>
 
 #include "lib/nlohmann/json.hpp"
 
 using json = nlohmann::json;
 
-json decode_bencoded_value(const std::string& encoded_value) {
-    if (std::isdigit(encoded_value[0])) {
-        // Example: "5:hello" -> "hello"
-        size_t colon_index = encoded_value.find(':');
-        if (colon_index != std::string::npos) {
-            std::string number_string = encoded_value.substr(0, colon_index);
-            int64_t number = std::atoll(number_string.c_str());
-            std::string str = encoded_value.substr(colon_index + 1, number);
-            return json(str);
-        } else {
-            throw std::runtime_error("Invalid encoded value: " + encoded_value);
-        }
+json decode_bencoded_value(const std::string& encoded_value, size_t& pos);
+
+json decode_bencoded_integer(const std::string& encoded_value, size_t& pos) {
+    pos++; 
+    size_t end = encoded_value.find('e', pos);
+    if (end == std::string::npos) {
+        throw std::runtime_error("Invalid bencoded integer: " + encoded_value);
+    }
+    int64_t number = std::atoll(encoded_value.substr(pos, end - pos).c_str());
+    pos = end + 1;
+    return json(number);
+}
+
+json decode_bencoded_string(const std::string& encoded_value, size_t& pos) {
+    size_t colon_index = encoded_value.find(':', pos);
+    if (colon_index == std::string::npos) {
+        throw std::runtime_error("Invalid bencoded string: " + encoded_value);
+    }
+    size_t length = std::atoll(encoded_value.substr(pos, colon_index - pos).c_str());
+    pos = colon_index + 1 + length;
+    return json(encoded_value.substr(colon_index + 1, length));
+}
+
+json decode_bencoded_list(const std::string& encoded_value, size_t& pos) {
+    pos++; 
+    json list = json::array();
+    while (encoded_value[pos] != 'e') {
+        list.push_back(decode_bencoded_value(encoded_value, pos));
+    }
+    pos++; 
+    return list;
+}
+
+json decode_bencoded_dict(const std::string& encoded_value, size_t& pos) {
+    pos++; 
+    json dict = json::object();
+    while (encoded_value[pos] != 'e') {
+        json key = decode_bencoded_string(encoded_value, pos);
+        json value = decode_bencoded_value(encoded_value, pos);
+        dict[key.get<std::string>()] = value;
+    }
+    pos++; 
+    return dict;
+}
+
+json decode_bencoded_value(const std::string& encoded_value, size_t& pos) {
+    if (std::isdigit(encoded_value[pos])) {
+        return decode_bencoded_string(encoded_value, pos);
+    } else if (encoded_value[pos] == 'i') {
+        return decode_bencoded_integer(encoded_value, pos);
+    } else if (encoded_value[pos] == 'l') {
+        return decode_bencoded_list(encoded_value, pos);
+    } else if (encoded_value[pos] == 'd') {
+        return decode_bencoded_dict(encoded_value, pos);
     } else {
         throw std::runtime_error("Unhandled encoded value: " + encoded_value);
     }
 }
 
 int main(int argc, char* argv[]) {
-    // Flush after every std::cout / std::cerr
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
@@ -42,12 +84,9 @@ int main(int argc, char* argv[]) {
             std::cerr << "Usage: " << argv[0] << " decode <encoded_value>" << std::endl;
             return 1;
         }
-        // You can use print statements as follows for debugging, they'll be visible when running tests.
-        std::cout << "Logs from your program will appear here!" << std::endl;
-
-        // Uncomment this block to pass the first stage
         std::string encoded_value = argv[2];
-        json decoded_value = decode_bencoded_value(encoded_value);
+        size_t pos = 0;
+        json decoded_value = decode_bencoded_value(encoded_value, pos);
         std::cout << decoded_value.dump() << std::endl;
     } else {
         std::cerr << "unknown command: " << command << std::endl;
