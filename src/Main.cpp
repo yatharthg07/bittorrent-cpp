@@ -87,6 +87,7 @@ int main(int argc, char* argv[]) {
         std::string encoded_value = argv[2];
         size_t pos = 0;
         json decoded_value = decode_bencoded_value(encoded_value, pos);
+        //used for decoding
         std::cout << decoded_value.dump() << std::endl;
     } else {
         std::cerr << "unknown command: " << command << std::endl;
