@@ -4,6 +4,7 @@
 #include <vector>
 #include <cctype>
 #include <cstdlib>
+#include <openssl/sha.h>
 
 #include "lib/nlohmann/json.hpp"
 
@@ -70,12 +71,48 @@ json decode_bencoded_value(const std::string& encoded_value, size_t& pos) {
 
 std::string read_file_as_string(const std::string& file_path) {
     std::ifstream file(file_path, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Could not open file: " + file_path);
+    std::stringstream buffer;
+    if (file) {
+        buffer << file.rdbuf();
+        file.close();
+        return buffer.str();
+    } else {
+        throw std::runtime_error("Failed to open file: " + file_path);
     }
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-    return content;
+}
+
+std::string json_to_bencode(const json& j) {
+    std::ostringstream os;
+    if (j.is_object()) {
+        os << 'd';
+        for (auto& el : j.items()) {
+            os << el.key().size() << ':' << el.key() << json_to_bencode(el.value());
+        }
+        os << 'e';
+    } else if (j.is_array()) {
+        os << 'l';
+        for (const json& item : j) {
+            os << json_to_bencode(item);
+        }
+        os << 'e';
+    } else if (j.is_number_integer()) {
+        os << 'i' << j.get<int64_t>() << 'e';
+    } else if (j.is_string()) {
+        const std::string& value = j.get<std::string>();
+        os << value.size() << ':' << value;
+    }
+    return os.str();
+}
+
+std::string calculate_sha1_hash(const std::string& input) {
+    unsigned char hash[SHA_DIGEST_LENGTH];
+    SHA1(reinterpret_cast<const unsigned char*>(input.c_str()), input.size(), hash);
+
+    std::stringstream ss;
+    for (int i = 0; i < SHA_DIGEST_LENGTH; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+    return ss.str();
 }
 
 void extract_torrent_info(const json& torrent_data) {
@@ -92,6 +129,15 @@ void extract_torrent_info(const json& torrent_data) {
         } else {
             std::cerr << "Error: 'length' field is missing in the 'info' dictionary." << std::endl;
         }
+
+        // Re-bencode the info dictionary
+        std::string bencoded_info = json_to_bencode(info);
+
+        // Calculate the SHA-1 hash of the bencoded info dictionary
+        std::string info_hash = calculate_sha1_hash(bencoded_info);
+
+        std::cout << "Info Hash: " << info_hash << std::endl;
+
     } else {
         std::cerr << "Error: 'info' dictionary is missing in the torrent file." << std::endl;
     }
@@ -119,6 +165,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: " << e.what() << std::endl;
             return 1;
         }
+  
     } else {
         std::cerr << "Unknown command: " << command << std::endl;
         return 1;
