@@ -2,8 +2,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include <cctype>
-#include <cstdlib>
+#include <iomanip>
 #include <openssl/sha.h>
 
 #include "lib/nlohmann/json.hpp"
@@ -137,6 +136,30 @@ void extract_torrent_info(const json& torrent_data) {
         std::string info_hash = calculate_sha1_hash(bencoded_info);
 
         std::cout << "Info Hash: " << info_hash << std::endl;
+
+        // Extract and print piece length and piece hashes
+        if (info.contains("piece length")) {
+            int64_t piece_length = info["piece length"].get<int64_t>();
+            std::cout << "Piece Length: " << piece_length << std::endl;
+        } else {
+            std::cerr << "Error: 'piece length' field is missing in the 'info' dictionary." << std::endl;
+        }
+
+        if (info.contains("pieces")) {
+            std::string pieces = info["pieces"].get<std::string>();
+            std::cout << "Piece Hashes:" << std::endl;
+
+            for (size_t i = 0; i < pieces.size(); i += 20) {
+                std::string piece_hash = pieces.substr(i, 20);
+                std::stringstream ss;
+                for (char c : piece_hash) {
+                    ss << std::hex << std::setw(2) << std::setfill('0') << (static_cast<int>(c) & 0xff);
+                }
+                std::cout << ss.str() << std::endl;
+            }
+        } else {
+            std::cerr << "Error: 'pieces' field is missing in the 'info' dictionary." << std::endl;
+        }
 
     } else {
         std::cerr << "Error: 'info' dictionary is missing in the torrent file." << std::endl;
